@@ -15,7 +15,7 @@
     "framer-motion": "^12.4.1",
     "livekit-client": "^2.8.1",
     "livekit-server-sdk": "^2.9.7",
-    "next": "15.1.6",
+    "next": "^16.2.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
