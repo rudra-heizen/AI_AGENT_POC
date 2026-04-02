@@ -13,8 +13,8 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { MediaDeviceFailure } from "livekit-client";
 import type { ConnectionDetails } from "@/app/api/connection-details/route";
-import { NoAgentNotification } from "@/app/components/NoAgentNotification";
-import { CloseIcon } from "@/app/components/CloseIcon";
+import { NoAgentNotification } from "@/components/NoAgentNotification";
+import { CloseIcon } from "@/components/CloseIcon";
 import { useKrispNoiseFilter } from "@livekit/components-react/krisp";
 
 export default function Home() {
