@@ -1,0 +1,468 @@
+{
+  "caseStudies": [
+    {
+      "id": "cs-infinite-scroll",
+      "title": "Infinite Scroll Implementation",
+      "category": "frontend",
+      "difficulty": "medium",
+      "technologies": ["React", "JavaScript", "DOM", "Performance"],
+      "problem": "You're building a social media feed that needs to load posts as the user scrolls. The API returns 20 posts per page. Walk me through how you would implement infinite scrolling in React.",
+      "detailedContext": "The feed shows posts with images, text, likes, and comments. Users scroll through hundreds of posts daily. The API endpoint is GET /api/posts?page=1&limit=20.",
+      "expectedSolution": {
+        "approach": "Use Intersection Observer API with a sentinel element at the bottom of the list. When the sentinel becomes visible, trigger the next page fetch.",
+        "keyComponents": [
+          "useState for posts array, page number, loading state, hasMore flag",
+          "useEffect with Intersection Observer setup",
+          "Sentinel div at the bottom of the list",
+          "Loading spinner component",
+          "Error boundary for failed requests"
+        ],
+        "codeStructure": "const [posts, setPosts] = useState([]); const [page, setPage] = useState(1); const [loading, setLoading] = useState(false); const [hasMore, setHasMore] = useState(true); const observerRef = useRef(); const sentinelRef = useRef(); useEffect(() => { observerRef.current = new IntersectionObserver(entries => { if (entries[0].isIntersecting && hasMore && !loading) { setPage(prev => prev + 1); } }); if (sentinelRef.current) observerRef.current.observe(sentinelRef.current); return () => observerRef.current?.disconnect(); }, [hasMore, loading]);"
+      },
+      "questions": [
+        {
+          "id": "cs-inf-1",
+          "question": "What React hooks would you use and what state do you need to manage?",
+          "expectedAnswer": "useState for: posts array, current page number, loading boolean, hasMore boolean, and optionally error state. useEffect for setting up the Intersection Observer and for fetching data when page changes. useRef for the observer instance and sentinel element reference. useCallback for the fetch function to prevent unnecessary re-renders.",
+          "maxPoints": 15,
+          "keyPointsToLookFor": ["useState for posts/page/loading/hasMore", "useEffect for observer setup", "useRef for observer and sentinel", "useCallback for fetch function"]
+        },
+        {
+          "id": "cs-inf-2",
+          "question": "How would you detect when to load more posts - scroll events or Intersection Observer? Explain your choice.",
+          "expectedAnswer": "Intersection Observer is preferred because: 1) It's more performant - doesn't fire on every scroll pixel, only when threshold is crossed. 2) No need for manual throttling/debouncing. 3) Works with CSS transforms and nested scrollable containers. 4) Browser optimizes the callbacks. Scroll events require throttling, manual calculations of scroll position vs container height, and can cause jank on slower devices.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Prefers Intersection Observer", "Mentions performance benefits", "Understands scroll event drawbacks", "Knows about throttling requirement for scroll"]
+        },
+        {
+          "id": "cs-inf-3",
+          "question": "What happens if the user scrolls very fast and triggers multiple API calls? How do you prevent this?",
+          "expectedAnswer": "Use a loading flag that's checked before making new requests. Set loading=true before fetch, false after. The Intersection Observer callback should check: if (isIntersecting && hasMore && !loading). Can also use AbortController to cancel in-flight requests if a new one is triggered. For extra safety, can track the last requested page to prevent duplicate page requests.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Loading flag check", "AbortController for cancellation", "Condition checks before fetch", "Preventing duplicate requests"]
+        },
+        {
+          "id": "cs-inf-4",
+          "question": "With thousands of posts loaded, what memory issues might occur and how would you solve them?",
+          "expectedAnswer": "Memory issues: DOM nodes pile up causing slow rendering and high memory usage. Solutions: 1) Virtualization/windowing - only render visible items plus buffer (react-window, react-virtualized, or tanstack-virtual). 2) Remove DOM nodes for off-screen items while keeping data in state. 3) Implement bidirectional infinite scroll - unload items that are far from viewport. 4) Lazy load images only when near viewport. 5) Consider pagination with 'Load More' button instead for very long lists.",
+          "maxPoints": 25,
+          "keyPointsToLookFor": ["Virtualization/windowing concept", "Mentions react-window or similar", "Lazy loading images", "Bidirectional unloading"]
+        },
+        {
+          "id": "cs-inf-5",
+          "question": "How would you handle errors and provide a good user experience when a page fails to load?",
+          "expectedAnswer": "1) Show inline error message near the loading area, not a full-page error. 2) Provide a 'Retry' button that attempts to fetch the same page again. 3) Keep existing posts visible - don't clear them on error. 4) Implement exponential backoff for automatic retries (1s, 2s, 4s). 5) After multiple failures, show a more prominent error with manual retry. 6) Log errors for monitoring. 7) Consider showing cached/stale data if available.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Inline error message", "Retry button", "Keep existing content", "Exponential backoff", "User-friendly messaging"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Understanding of Intersection Observer API",
+        "Proper state management for pagination",
+        "Race condition and duplicate request prevention",
+        "Memory management and virtualization awareness",
+        "Error handling and UX considerations"
+      ]
+    },
+    {
+      "id": "cs-mfa-auth",
+      "title": "Multi-Factor Authentication (MFA) Implementation",
+      "category": "fullstack",
+      "difficulty": "hard",
+      "technologies": ["Node.js", "React", "Security", "TOTP", "Authentication"],
+      "problem": "You need to implement Multi-Factor Authentication for a banking application. Users should be able to enable MFA using an authenticator app (like Google Authenticator) and optionally SMS. Walk me through the complete implementation.",
+      "detailedContext": "This is a high-security application handling financial transactions. Users must set up MFA during onboarding. The system should support TOTP (Time-based One-Time Password) as primary and SMS as backup. Recovery codes should be provided.",
+      "expectedSolution": {
+        "approach": "Implement TOTP using a library like speakeasy or otplib. Generate a secret per user, create QR code for authenticator app setup, verify codes during login. Store secrets encrypted in database. Provide recovery codes as backup.",
+        "keyComponents": [
+          "TOTP secret generation and storage (encrypted)",
+          "QR code generation for authenticator app",
+          "Code verification with time window tolerance",
+          "Recovery codes generation and secure storage",
+          "SMS fallback using Twilio or similar",
+          "Rate limiting on verification attempts"
+        ],
+        "codeStructure": "// Setup: const secret = speakeasy.generateSecret({ name: 'BankApp:user@email.com' }); const qrCodeUrl = secret.otpauth_url; // Store encrypted: await db.user.update({ mfaSecret: encrypt(secret.base32) }); // Verify: const isValid = speakeasy.totp.verify({ secret: decrypt(user.mfaSecret), encoding: 'base32', token: userInput, window: 1 });"
+      },
+      "questions": [
+        {
+          "id": "cs-mfa-1",
+          "question": "Explain how TOTP (Time-based One-Time Password) works at a high level.",
+          "expectedAnswer": "TOTP generates codes based on: 1) A shared secret between server and authenticator app. 2) Current Unix timestamp divided by a time step (usually 30 seconds). 3) HMAC-SHA1 algorithm combining secret + time to produce a 6-digit code. Both server and app generate the same code because they share the secret and use the same time. Codes expire every 30 seconds. Server typically accepts codes from current and adjacent time windows to handle clock drift.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Shared secret concept", "Time-based with 30-second windows", "HMAC algorithm mention", "Clock drift tolerance/window"]
+        },
+        {
+          "id": "cs-mfa-2",
+          "question": "How would you securely store the MFA secret in your database?",
+          "expectedAnswer": "1) Encrypt the secret using AES-256 before storing - never store plaintext. 2) Use a separate encryption key stored in environment variables or a secrets manager (AWS KMS, HashiCorp Vault). 3) The encryption key should never be in the database. 4) Consider using authenticated encryption (AES-GCM) to detect tampering. 5) Implement key rotation strategy. 6) Audit logs for secret access. 7) The secret should only be decrypted server-side during verification, never sent to client after initial setup.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Encryption at rest (AES-256)", "Separate key storage", "Key management service mention", "Never expose after setup"]
+        },
+        {
+          "id": "cs-mfa-3",
+          "question": "Walk me through the user flow for setting up MFA for the first time.",
+          "expectedAnswer": "1) User goes to security settings, clicks 'Enable MFA'. 2) Server generates a new TOTP secret and creates otpauth:// URL. 3) Display QR code (generated from URL) and manual entry key. 4) User scans QR with authenticator app. 5) User enters the current code from app to verify setup works. 6) Server verifies the code against the secret. 7) If valid, mark MFA as enabled, generate and display recovery codes (one-time view). 8) User must save recovery codes. 9) Store encrypted secret and hashed recovery codes in database.",
+          "maxPoints": 15,
+          "keyPointsToLookFor": ["QR code generation", "Verification step before enabling", "Recovery codes generation", "One-time display of recovery codes"]
+        },
+        {
+          "id": "cs-mfa-4",
+          "question": "How would you implement recovery codes and what security considerations apply?",
+          "expectedAnswer": "1) Generate 8-10 random recovery codes (e.g., 8 characters each, alphanumeric). 2) Show codes only once during MFA setup - user must save them. 3) Hash each code (bcrypt) before storing - never store plaintext. 4) Each code is single-use - mark as used after successful recovery. 5) Track remaining codes, prompt user to regenerate when low. 6) Regenerating codes invalidates all previous codes. 7) Rate limit recovery attempts. 8) Require additional verification (email confirmation) when using recovery code. 9) Log all recovery code usage for security audit.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Single-use codes", "Hashed storage", "One-time display", "Rate limiting", "Audit logging"]
+        },
+        {
+          "id": "cs-mfa-5",
+          "question": "What are the security risks of SMS-based MFA and how would you mitigate them?",
+          "expectedAnswer": "Risks: 1) SIM swapping attacks - attacker convinces carrier to transfer number. 2) SS7 protocol vulnerabilities - SMS can be intercepted. 3) Social engineering at carrier level. 4) Phone number recycling. Mitigations: 1) Use SMS only as backup, not primary MFA. 2) Implement additional verification before sending SMS (security questions, email). 3) Alert user via email when SMS MFA is used. 4) Rate limit SMS sends. 5) Consider requiring re-verification of phone number periodically. 6) For high-value actions, require TOTP even if SMS is set up. 7) Educate users about SIM swap risks.",
+          "maxPoints": 15,
+          "keyPointsToLookFor": ["SIM swapping awareness", "SS7 vulnerabilities", "SMS as backup only", "Additional verification layers", "User notification"]
+        },
+        {
+          "id": "cs-mfa-6",
+          "question": "How would you handle the login flow when MFA is enabled?",
+          "expectedAnswer": "1) User enters username/password. 2) Verify credentials - if invalid, return generic error. 3) If valid and MFA enabled, don't create session yet. 4) Return a temporary MFA challenge token (short-lived, 5 min). 5) Show MFA input screen. 6) User enters TOTP code. 7) Verify code with time window tolerance (±1 window). 8) Rate limit attempts (5 tries, then lockout). 9) If valid, create full session and return auth tokens. 10) If invalid, decrement attempts, return error. 11) After lockout, require password re-entry or recovery code.",
+          "maxPoints": 10,
+          "keyPointsToLookFor": ["Two-step verification flow", "Temporary challenge token", "Rate limiting attempts", "Time window tolerance", "Lockout mechanism"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Understanding of TOTP algorithm and implementation",
+        "Secure secret storage practices",
+        "Recovery mechanism design",
+        "SMS security awareness",
+        "Complete authentication flow design"
+      ]
+    },
+    {
+      "id": "cs-debounce-search",
+      "title": "Debounced Search with Autocomplete",
+      "category": "frontend",
+      "difficulty": "medium",
+      "technologies": ["React", "JavaScript", "API", "UX"],
+      "problem": "You need to build a search input that shows autocomplete suggestions as the user types. The suggestions come from an API. How would you implement this to ensure good performance and user experience?",
+      "detailedContext": "The search is for an e-commerce site with millions of products. Users expect instant feedback. The API endpoint is GET /api/search?q=query and returns up to 10 suggestions.",
+      "expectedSolution": {
+        "approach": "Implement debouncing to limit API calls, use AbortController for race conditions, cache previous results, and handle keyboard navigation for accessibility.",
+        "keyComponents": [
+          "Debounce function (300-500ms delay)",
+          "AbortController for canceling stale requests",
+          "Local cache for previous searches",
+          "Keyboard navigation (arrow keys, enter, escape)",
+          "Loading and error states"
+        ],
+        "codeStructure": "const [query, setQuery] = useState(''); const [suggestions, setSuggestions] = useState([]); const abortControllerRef = useRef(); const debouncedSearch = useMemo(() => debounce(async (searchTerm) => { abortControllerRef.current?.abort(); abortControllerRef.current = new AbortController(); const results = await fetch(`/api/search?q=${searchTerm}`, { signal: abortControllerRef.current.signal }); setSuggestions(await results.json()); }, 300), []);"
+      },
+      "questions": [
+        {
+          "id": "cs-deb-1",
+          "question": "What is debouncing and why is it important for this feature?",
+          "expectedAnswer": "Debouncing delays function execution until a pause in events. For search, it waits until the user stops typing (e.g., 300ms) before making an API call. Without it, typing 'laptop' would make 6 API calls (l, la, lap, lapt, lapto, laptop). With debouncing, it makes 1 call after the user pauses. This reduces server load, saves bandwidth, prevents UI flickering from rapid updates, and improves perceived performance.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Delays execution until pause", "Reduces API calls", "Typical delay 300-500ms", "Difference from throttling"]
+        },
+        {
+          "id": "cs-deb-2",
+          "question": "How would you handle race conditions where an older request returns after a newer one?",
+          "expectedAnswer": "Use AbortController to cancel previous in-flight requests when a new search is triggered. Store the controller in a ref, call abort() before making new request, pass signal to fetch. Alternative: track request IDs and ignore responses that don't match the latest ID. This prevents showing stale results - e.g., user types 'lap', then 'laptop', but 'lap' results return last and overwrite 'laptop' results.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["AbortController usage", "Cancel previous requests", "Request ID tracking alternative", "Understands the race condition problem"]
+        },
+        {
+          "id": "cs-deb-3",
+          "question": "How would you implement keyboard navigation for the suggestions dropdown?",
+          "expectedAnswer": "Track selectedIndex in state. On ArrowDown: increment index (wrap to 0 at end). On ArrowUp: decrement (wrap to last at -1). On Enter: select the highlighted item. On Escape: close dropdown. Use aria-activedescendant for screen readers. Each suggestion needs unique id. The input should have role='combobox', aria-expanded, aria-controls pointing to listbox. Suggestions list has role='listbox', each item role='option' with aria-selected.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Arrow key navigation", "Enter to select", "Escape to close", "ARIA attributes for accessibility", "Index wrapping"]
+        },
+        {
+          "id": "cs-deb-4",
+          "question": "How would you cache previous search results to improve performance?",
+          "expectedAnswer": "Use a Map or object to store query->results pairs. Before API call, check cache. Implement LRU (Least Recently Used) eviction when cache exceeds size limit (e.g., 50 entries). Consider cache TTL for freshness. For React, can use useMemo with a cache ref, or libraries like react-query/SWR that handle caching automatically. Cache key should be normalized (lowercase, trimmed).",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Cache structure (Map/object)", "LRU eviction strategy", "Cache size limits", "TTL consideration", "Query normalization"]
+        },
+        {
+          "id": "cs-deb-5",
+          "question": "What UX considerations would you keep in mind for the search experience?",
+          "expectedAnswer": "1) Minimum character threshold (2-3 chars) before searching. 2) Loading indicator while fetching. 3) 'No results' message vs empty state. 4) Highlight matching text in suggestions. 5) Recent searches section. 6) Clear button in input. 7) Mobile-friendly touch targets. 8) Preserve query on navigation back. 9) Handle slow connections gracefully. 10) Show search icon/placeholder for affordance.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Minimum character threshold", "Loading states", "Highlight matching text", "Recent searches", "Mobile considerations"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Understanding of debouncing concept and implementation",
+        "Race condition handling with AbortController",
+        "Keyboard navigation and accessibility",
+        "Caching strategy",
+        "UX best practices"
+      ]
+    },
+    {
+      "id": "cs-real-time-notifications",
+      "title": "Real-time Notification System",
+      "category": "fullstack",
+      "difficulty": "hard",
+      "technologies": ["WebSockets", "React", "Node.js", "Redis"],
+      "problem": "You need to implement a real-time notification system where users receive instant notifications when certain events happen (like new messages, mentions, order updates). How would you design this from frontend to backend?",
+      "detailedContext": "The application has 100K+ concurrent users. Notifications include: new messages, @mentions, order status updates, and system announcements. Users can have multiple tabs/devices open.",
+      "expectedSolution": {
+        "approach": "Use WebSockets for real-time delivery, Redis Pub/Sub for scaling across servers, store notifications in database for persistence, implement reconnection logic on frontend.",
+        "keyComponents": [
+          "WebSocket server (Socket.io or ws)",
+          "Redis Pub/Sub for horizontal scaling",
+          "Notification queue for reliability",
+          "Database persistence for history",
+          "Frontend state management",
+          "Multi-tab synchronization"
+        ],
+        "codeStructure": "// Backend: io.on('connection', (socket) => { socket.join(`user:${userId}`); }); redis.subscribe('notifications'); redis.on('message', (channel, message) => { const { userId, notification } = JSON.parse(message); io.to(`user:${userId}`).emit('notification', notification); }); // Frontend: socket.on('notification', (data) => { dispatch(addNotification(data)); });"
+      },
+      "questions": [
+        {
+          "id": "cs-notif-1",
+          "question": "WebSocket vs Server-Sent Events vs Long Polling - which would you choose and why?",
+          "expectedAnswer": "WebSocket for this use case because: 1) Bidirectional - client can acknowledge/mark as read. 2) Lower latency than SSE. 3) Better browser support than SSE for older browsers. 4) Single connection for multiple event types. SSE is simpler but unidirectional - good for read-only feeds. Long polling has higher latency and server overhead. WebSocket cons: more complex setup, need to handle reconnection. For 100K users, WebSocket's persistent connection is more efficient than repeated HTTP requests.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Chooses WebSocket with reasoning", "Understands bidirectional benefit", "Knows SSE limitations", "Mentions connection overhead of polling"]
+        },
+        {
+          "id": "cs-notif-2",
+          "question": "How would you handle reconnection when the WebSocket connection drops?",
+          "expectedAnswer": "1) Implement exponential backoff: 1s, 2s, 4s, 8s... up to max (30s). 2) Add jitter to prevent thundering herd. 3) Track last received notification timestamp/ID. 4) On reconnect, fetch missed notifications via REST API. 5) Show connection status indicator to user. 6) Queue outgoing messages during disconnect, send on reconnect. 7) Use heartbeat/ping-pong to detect dead connections early. 8) Libraries like Socket.io handle much of this automatically.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Exponential backoff", "Fetch missed notifications on reconnect", "Connection status UI", "Heartbeat mechanism", "Jitter for thundering herd"]
+        },
+        {
+          "id": "cs-notif-3",
+          "question": "How would you scale this to handle 100K+ concurrent users across multiple servers?",
+          "expectedAnswer": "1) Use Redis Pub/Sub as message broker between servers. 2) When notification created, publish to Redis channel. 3) All WebSocket servers subscribe to Redis, deliver to their connected users. 4) Use sticky sessions or Redis adapter for Socket.io. 5) Horizontal scaling: add more WebSocket servers behind load balancer. 6) Consider dedicated notification service separate from main API. 7) Use connection pooling for Redis. 8) Monitor connections per server, auto-scale based on load.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Redis Pub/Sub for cross-server communication", "Horizontal scaling approach", "Sticky sessions or Redis adapter", "Separate notification service"]
+        },
+        {
+          "id": "cs-notif-4",
+          "question": "How would you handle the case where a user has multiple tabs or devices open?",
+          "expectedAnswer": "1) Each connection joins a user-specific room (user:123). 2) Broadcast to room delivers to all tabs/devices. 3) Use BroadcastChannel API or localStorage events for same-browser tab sync. 4) Track notification read status server-side. 5) When marked as read in one tab, broadcast read event to other tabs. 6) Deduplicate notifications on frontend by ID. 7) Consider showing 'Viewing in another tab' for active conversations. 8) Sync unread count across all connections.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Room-based broadcasting", "BroadcastChannel or localStorage for tab sync", "Server-side read status", "Deduplication by ID"]
+        },
+        {
+          "id": "cs-notif-5",
+          "question": "How would you ensure notifications are delivered even if the user was offline?",
+          "expectedAnswer": "1) Store all notifications in database with 'delivered' flag. 2) On WebSocket connect, query undelivered notifications for user. 3) Send pending notifications, mark as delivered. 4) For mobile: integrate push notifications (FCM/APNs) as fallback. 5) Email digest for important notifications if offline >24h. 6) Implement notification queue (Redis/RabbitMQ) for reliability. 7) Retry failed deliveries with backoff. 8) TTL on notifications - don't deliver week-old notifications.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Database persistence", "Fetch on reconnect", "Push notifications for mobile", "Message queue for reliability", "TTL for old notifications"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Understanding of real-time communication options",
+        "Reconnection and reliability handling",
+        "Horizontal scaling with Redis",
+        "Multi-device synchronization",
+        "Offline delivery strategy"
+      ]
+    },
+    {
+      "id": "cs-rate-limiting",
+      "title": "API Rate Limiting Implementation",
+      "category": "backend",
+      "difficulty": "hard",
+      "technologies": ["Node.js", "Redis", "API Design", "Security"],
+      "problem": "You need to implement rate limiting for your API to prevent abuse. Different endpoints have different limits, and premium users have higher limits. How would you design and implement this?",
+      "detailedContext": "The API serves both free and premium users. Free users: 100 requests/hour. Premium: 1000 requests/hour. Some endpoints (login, signup) have stricter limits. The API runs on multiple servers.",
+      "expectedSolution": {
+        "approach": "Use Redis for distributed rate limiting with sliding window algorithm. Implement as middleware that checks limits before processing requests.",
+        "keyComponents": [
+          "Redis for distributed counter storage",
+          "Sliding window or token bucket algorithm",
+          "Middleware pattern for easy application",
+          "Different limits per endpoint and user tier",
+          "Proper HTTP headers (X-RateLimit-*)"
+        ],
+        "codeStructure": "async function rateLimitMiddleware(req, res, next) { const key = `ratelimit:${req.user?.id || req.ip}:${req.path}`; const limit = getUserLimit(req.user); const current = await redis.incr(key); if (current === 1) await redis.expire(key, 3600); if (current > limit) { res.set('Retry-After', ttl); return res.status(429).json({ error: 'Too many requests' }); } res.set('X-RateLimit-Limit', limit); res.set('X-RateLimit-Remaining', limit - current); next(); }"
+      },
+      "questions": [
+        {
+          "id": "cs-rate-1",
+          "question": "Explain the token bucket algorithm for rate limiting.",
+          "expectedAnswer": "Token bucket: Bucket holds tokens up to max capacity. Tokens added at fixed rate (e.g., 10/second). Each request consumes one token. If bucket empty, request rejected. Allows bursts up to bucket size while maintaining average rate. Implementation: store {tokens, lastRefill} in Redis. On request: calculate tokens to add based on time elapsed, subtract 1 if available. Pros: handles bursts gracefully, smooth rate limiting. Alternative: sliding window counts requests in rolling time period.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Tokens added at fixed rate", "Bucket has max capacity", "Allows bursts", "Smooth rate limiting", "Comparison with sliding window"]
+        },
+        {
+          "id": "cs-rate-2",
+          "question": "How would you handle rate limiting across multiple servers?",
+          "expectedAnswer": "Use centralized store like Redis - all servers read/write to same counters. Redis is fast enough for rate limiting checks. Use atomic operations (INCR, MULTI/EXEC) to prevent race conditions. Consider Redis Cluster for high availability. Alternative: use a dedicated rate limiting service. Local caching can reduce Redis calls but may allow slight over-limit. For extreme scale, consider approximate algorithms like Redis-Cell module.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Centralized Redis storage", "Atomic operations", "Race condition awareness", "Redis Cluster for HA", "Local caching tradeoffs"]
+        },
+        {
+          "id": "cs-rate-3",
+          "question": "What HTTP response should you send when a user is rate limited?",
+          "expectedAnswer": "Status: 429 Too Many Requests. Headers: X-RateLimit-Limit (max requests), X-RateLimit-Remaining (requests left), X-RateLimit-Reset (Unix timestamp when limit resets), Retry-After (seconds until can retry). Body: JSON with error message, limit info, and when to retry. Be careful not to leak info - don't reveal if user exists based on different limits. Consider returning 429 for both auth and unauth to prevent enumeration.",
+          "maxPoints": 15,
+          "keyPointsToLookFor": ["429 status code", "X-RateLimit headers", "Retry-After header", "JSON error body", "Security consideration about info leakage"]
+        },
+        {
+          "id": "cs-rate-4",
+          "question": "How would you implement different rate limits for different user tiers?",
+          "expectedAnswer": "1) Store user tier in JWT or fetch from database. 2) Define limits config: { free: 100, premium: 1000, enterprise: 10000 }. 3) In middleware, get user tier, look up limit. 4) Use different Redis keys per tier or include tier in key. 5) For unauthenticated requests, use IP-based limiting with lowest tier. 6) Consider endpoint-specific overrides (login: 5/min for all). 7) Grace period when user upgrades tier. 8) Admin endpoints might have no limit but require auth.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Config-based limits per tier", "IP-based for unauthenticated", "Endpoint-specific overrides", "Tier lookup from JWT/DB"]
+        },
+        {
+          "id": "cs-rate-5",
+          "question": "How would you test your rate limiting implementation?",
+          "expectedAnswer": "1) Unit tests: mock Redis, verify counter increments, verify rejection at limit. 2) Integration tests: real Redis, send N+1 requests, verify 429 on last. 3) Test headers are set correctly. 4) Test different user tiers get different limits. 5) Test IP-based limiting for unauthenticated. 6) Load test: verify limits hold under concurrent requests. 7) Test Redis failure handling - fail open or closed? 8) Test time-based reset works correctly. 9) Test distributed scenario with multiple app instances.",
+          "maxPoints": 15,
+          "keyPointsToLookFor": ["Unit tests with mocked Redis", "Integration tests with real Redis", "Concurrent request testing", "Redis failure handling", "Multi-instance testing"]
+        },
+        {
+          "id": "cs-rate-6",
+          "question": "What happens if Redis goes down? How do you handle this failure?",
+          "expectedAnswer": "Options: 1) Fail open - allow requests through (risky for abuse but maintains availability). 2) Fail closed - reject all requests (safe but poor UX). 3) Fallback to in-memory limiting per server (inconsistent but functional). 4) Circuit breaker pattern - after N Redis failures, switch to fallback for X seconds. Best practice: fail open for most endpoints, fail closed for sensitive ones (login, payment). Always log failures for alerting. Consider Redis Sentinel or Cluster for HA.",
+          "maxPoints": 10,
+          "keyPointsToLookFor": ["Fail open vs fail closed tradeoff", "In-memory fallback option", "Circuit breaker pattern", "Different strategies for different endpoints", "Redis HA solutions"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Rate limiting algorithm understanding",
+        "Distributed system considerations",
+        "Proper HTTP response handling",
+        "User tier implementation",
+        "Failure handling and testing"
+      ]
+    },
+    {
+      "id": "cs-file-upload",
+      "title": "Large File Upload with Progress and Resume",
+      "category": "fullstack",
+      "difficulty": "hard",
+      "technologies": ["JavaScript", "Node.js", "Streams", "AWS S3"],
+      "problem": "Implement a file upload feature that supports large files (up to 1GB), shows upload progress, allows pausing/resuming, and handles failures gracefully. How would you approach this?",
+      "detailedContext": "Users upload video files for processing. Files range from 100MB to 1GB. Users are often on unstable connections. The backend stores files in S3.",
+      "expectedSolution": {
+        "approach": "Implement chunked uploads - split file into smaller pieces, upload each chunk separately, track progress, allow resume from last successful chunk.",
+        "keyComponents": [
+          "File chunking on frontend (5-10MB chunks)",
+          "Chunk upload with progress tracking",
+          "Server-side chunk assembly or S3 multipart upload",
+          "Resume capability using chunk tracking",
+          "Retry logic for failed chunks"
+        ],
+        "codeStructure": "// Frontend: const CHUNK_SIZE = 5 * 1024 * 1024; async function uploadFile(file) { const totalChunks = Math.ceil(file.size / CHUNK_SIZE); for (let i = 0; i < totalChunks; i++) { const chunk = file.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE); await uploadChunk(chunk, i, file.name); updateProgress((i + 1) / totalChunks * 100); } } // Backend: Use S3 multipart upload API"
+      },
+      "questions": [
+        {
+          "id": "cs-file-1",
+          "question": "How would you handle uploading a 1GB file without running out of browser memory?",
+          "expectedAnswer": "Use File.slice() to read file in chunks - never load entire file into memory. Slice returns a Blob referencing the original file, not a copy. Upload chunks sequentially or with limited parallelism (3-4 concurrent). Use streams where possible. On backend, stream directly to S3 using multipart upload - don't buffer entire file. Set appropriate chunk size (5-10MB) balancing memory usage vs request overhead.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["File.slice() for chunking", "Never load entire file", "Stream to storage", "Chunk size considerations", "Limited parallelism"]
+        },
+        {
+          "id": "cs-file-2",
+          "question": "Explain how you would implement the resume capability for interrupted uploads.",
+          "expectedAnswer": "1) Generate unique upload ID when starting. 2) Track uploaded chunks on server (Redis or DB). 3) Before uploading chunk, check if already uploaded. 4) On resume, query server for completed chunks. 5) Skip completed chunks, continue from first missing. 6) Use content hash (MD5) to verify chunk integrity. 7) Store upload state in localStorage for client-side recovery. 8) Set expiration on incomplete uploads (24h) to clean up. 9) S3 multipart upload has built-in support for this.",
+          "maxPoints": 25,
+          "keyPointsToLookFor": ["Unique upload ID", "Server-side chunk tracking", "Query completed chunks on resume", "Content hash verification", "Cleanup of incomplete uploads"]
+        },
+        {
+          "id": "cs-file-3",
+          "question": "How would you show accurate upload progress to the user?",
+          "expectedAnswer": "1) Use XMLHttpRequest or fetch with ReadableStream for per-chunk progress. 2) XHR: xhr.upload.onprogress gives loaded/total bytes. 3) Track: chunks completed + current chunk progress. 4) Formula: ((completedChunks * chunkSize) + currentChunkProgress) / totalSize * 100. 5) Show: percentage, uploaded/total MB, estimated time remaining. 6) Calculate speed: bytes uploaded / time elapsed. 7) ETA: remaining bytes / current speed. 8) Smooth the progress bar to avoid jumps between chunks.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["XHR upload.onprogress", "Combined chunk + current progress", "Speed calculation", "ETA estimation", "Smooth progress updates"]
+        },
+        {
+          "id": "cs-file-4",
+          "question": "How would you validate file type and size before uploading?",
+          "expectedAnswer": "Client-side: 1) Check file.type against allowed MIME types. 2) Check file.size against max limit. 3) Don't trust file extension alone - can be spoofed. 4) For images/videos, can validate by reading file header (magic bytes). Server-side: 1) Always re-validate - client checks can be bypassed. 2) Check Content-Type header. 3) Read first few bytes to verify magic number matches claimed type. 4) Scan for malware before processing. 5) Reject if validation fails, return clear error message.",
+          "maxPoints": 15,
+          "keyPointsToLookFor": ["Client and server validation", "MIME type checking", "Magic bytes verification", "Don't trust extension alone", "Malware scanning mention"]
+        },
+        {
+          "id": "cs-file-5",
+          "question": "How would you handle concurrent uploads of multiple files?",
+          "expectedAnswer": "1) Queue system: add files to queue, process N at a time (2-3 concurrent). 2) Each file has own progress state. 3) Show individual + overall progress. 4) Allow canceling individual files. 5) Prioritization: let user reorder queue. 6) Memory management: don't start reading next file until current has buffer space. 7) Bandwidth consideration: too many concurrent uploads slow each other. 8) UI: show list with status (queued, uploading, complete, failed). 9) Retry failed files without blocking others.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Queue with concurrency limit", "Individual progress tracking", "Cancel individual files", "Memory management", "Bandwidth considerations"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Chunked upload understanding",
+        "Memory management awareness",
+        "Resume capability design",
+        "Progress tracking implementation",
+        "Validation and error handling"
+      ]
+    },
+    {
+      "id": "cs-secure-auth",
+      "title": "Secure JWT Authentication Flow",
+      "category": "fullstack",
+      "difficulty": "hard",
+      "technologies": ["JWT", "OAuth", "Security", "React", "Node.js"],
+      "problem": "Design a secure authentication system for a web application. Users should be able to login with email/password and also with Google OAuth. How would you implement token management, refresh tokens, and protect against common security vulnerabilities?",
+      "detailedContext": "SaaS application with sensitive user data. Needs to support web and mobile clients. Sessions should persist across browser restarts but also be revocable.",
+      "expectedSolution": {
+        "approach": "Use short-lived access tokens (15 min) with longer refresh tokens (7 days). Store refresh token in httpOnly cookie, access token in memory. Implement token rotation on refresh.",
+        "keyComponents": [
+          "Access token (short-lived, in memory)",
+          "Refresh token (httpOnly cookie)",
+          "Token rotation on refresh",
+          "CSRF protection",
+          "OAuth integration"
+        ],
+        "codeStructure": "// Login response: res.cookie('refreshToken', token, { httpOnly: true, secure: true, sameSite: 'strict' }); return { accessToken }; // Frontend: store accessToken in memory, not localStorage. // Refresh: POST /auth/refresh with cookie, get new tokens, rotate refresh token."
+      },
+      "questions": [
+        {
+          "id": "cs-auth-1",
+          "question": "Where would you store the access token and refresh token? Why?",
+          "expectedAnswer": "Access token: In memory (JavaScript variable/state). Why: XSS can't access it, cleared on tab close. Refresh token: httpOnly cookie. Why: JavaScript can't access (XSS protection), automatically sent with requests, persists across sessions. NOT localStorage: vulnerable to XSS - any script can read it. NOT regular cookies: accessible to JavaScript. Trade-off: memory storage means token lost on refresh, but refresh token in cookie allows silent re-auth.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Access token in memory", "Refresh token in httpOnly cookie", "XSS vulnerability of localStorage", "Understands trade-offs", "Silent re-auth on page refresh"]
+        },
+        {
+          "id": "cs-auth-2",
+          "question": "How would you handle token refresh without interrupting the user?",
+          "expectedAnswer": "1) Track access token expiry time. 2) Before expiry (e.g., 1 min before), proactively refresh. 3) Or: intercept 401 responses, refresh, retry original request. 4) Queue requests during refresh to avoid multiple refresh calls. 5) Use axios interceptors or fetch wrapper. 6) If refresh fails (expired/revoked), redirect to login. 7) Show loading state only if refresh takes long. 8) Implement refresh token rotation - new refresh token on each refresh for security.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Proactive refresh before expiry", "Intercept 401 and retry", "Queue requests during refresh", "Axios interceptors", "Refresh token rotation"]
+        },
+        {
+          "id": "cs-auth-3",
+          "question": "What is CSRF and how would you protect against it?",
+          "expectedAnswer": "CSRF: Attacker tricks user's browser into making authenticated request to your site. Example: malicious site has form posting to your /transfer endpoint, uses victim's cookies. Protection: 1) SameSite=Strict cookies - not sent on cross-origin requests. 2) CSRF tokens - server generates token, client sends in header, server validates. 3) Check Origin/Referer headers. 4) For APIs: require custom header (X-Requested-With) that can't be set cross-origin. 5) Don't use cookies for auth on pure APIs - use Authorization header instead.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Understands CSRF attack", "SameSite cookie attribute", "CSRF tokens", "Origin/Referer checking", "Custom header requirement"]
+        },
+        {
+          "id": "cs-auth-4",
+          "question": "How would you implement 'remember me' functionality securely?",
+          "expectedAnswer": "1) 'Remember me' = longer refresh token expiry (30 days vs 7 days). 2) Store preference server-side, not in token. 3) Without 'remember me': session cookie (no expiry, cleared on browser close). 4) With 'remember me': persistent cookie with expiry. 5) Still use short access tokens regardless. 6) Track device/session - allow user to see and revoke sessions. 7) Re-authenticate for sensitive actions even with valid session. 8) Implement absolute session timeout (e.g., 90 days max).",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Longer refresh token expiry", "Session vs persistent cookies", "Device/session tracking", "Re-auth for sensitive actions", "Absolute timeout"]
+        },
+        {
+          "id": "cs-auth-5",
+          "question": "What happens when a user logs out - how do you invalidate tokens?",
+          "expectedAnswer": "1) Clear access token from memory. 2) Clear refresh token cookie (set empty, expired). 3) Server-side: add refresh token to blacklist (Redis with TTL). 4) Or: store valid refresh tokens in DB, delete on logout. 5) For 'logout everywhere': invalidate all user's refresh tokens. 6) Access tokens can't be truly invalidated (stateless) - keep them short-lived. 7) For immediate revocation needs: check blacklist on each request (adds latency). 8) Alternative: use token versioning - increment version on logout, reject old versions.",
+          "maxPoints": 20,
+          "keyPointsToLookFor": ["Clear tokens client-side", "Server-side token blacklist", "Redis with TTL for blacklist", "Logout everywhere capability", "Token versioning alternative"]
+        }
+      ],
+      "evaluationCriteria": [
+        "Token storage security",
+        "Refresh token flow",
+        "CSRF protection",
+        "Remember me implementation",
+        "Token invalidation strategy"
+      ]
+    }
+  ]
+}

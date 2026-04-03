@@ -11,7 +11,7 @@ import {
   DisconnectButton,
 } from "@livekit/components-react";
 import { useCallback, useEffect, useState } from "react";
-import { MediaDeviceFailure } from "livekit-client";
+import { MediaDeviceFailure, RoomOptions } from "livekit-client";
 import type { ConnectionDetails } from "@/app/api/connection-details/route";
 import { NoAgentNotification } from "@/components/NoAgentNotification";
 import { CloseIcon } from "@/components/CloseIcon";
@@ -55,7 +55,13 @@ export default function Home() {
     const connectionDetailsData = await response.json();
     updateConnectionDetails(connectionDetailsData);
   }, []);
-
+  const roomOptions: RoomOptions = {
+    audioCaptureDefaults: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  };
   return (
     <main
       data-lk-theme="default"
@@ -68,6 +74,7 @@ export default function Home() {
         audio={true}
         video={false}
         onMediaDeviceFailure={onDeviceFailure}
+        options={roomOptions}
         onDisconnected={() => {
           updateConnectionDetails(undefined);
         }}

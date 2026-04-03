@@ -1,32 +1,35 @@
+import asyncio
 import os
 import time
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, RunContext, cli, function_tool
+from livekit.agents import Agent, AgentSession, JobContext, RunContext, cli, function_tool
 from livekit.plugins import openai
+from livekit.agents import WorkerOptions, TurnHandlingOptions
+from questions import generate_interview_question
 
 load_dotenv()
-from livekit.agents import WorkerOptions
 
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
-    
-    # Record start time
+
     interview_start_time = time.time()
+    
+    # State tracking for the silence watcher
+    silence_task: asyncio.Task | None = None
+    silence_stage = 0
+    is_nudging = False
 
     # =========================================================================
     # 1. DEFINE TOOLS
     # =========================================================================
     @function_tool
-    async def get_interview_question(context: RunContext, category: str, difficulty: str) -> str:
-        """Fetch an interview question based on category and difficulty."""
-        if category.lower() == "react":
-            return "What is the Virtual DOM, and how does React use it to optimize performance?"
-        else:
-            return f"Can you explain a core concept regarding {category} and how you utilized it?"
+    async def get_interview_question(context: RunContext, category: str, difficulty: str, question_type: str = "general") -> str:
+        """Fetch an interview question guidance. question_type must be either 'general' or 'case_study'."""
+        return await generate_interview_question(category, difficulty, question_type)
 
     @function_tool
     async def check_time_remaining(context: RunContext) -> str:
-        """Call this to check elapsed time. The target interview length is 8 to 10 minutes."""
+        """Call this to check elapsed time. The target interview length is 8 minutes."""
         elapsed_seconds = time.time() - interview_start_time
         mins, secs = int(elapsed_seconds // 60), int(elapsed_seconds % 60)
         return f"{mins}m {secs}s elapsed."
@@ -34,47 +37,17 @@ async def entrypoint(ctx: JobContext):
     @function_tool
     async def end_interview(context: RunContext) -> str:
         """Call this function to end the interview. Use ONLY after you have said your final goodbye."""
-        import asyncio
-        await asyncio.sleep(2) # Buffer for final audio to play
+        cancel_silence_watcher()
+        await asyncio.sleep(2)
         await ctx.room.disconnect()
         return "Disconnected"
 
     # =========================================================================
     # 2. THE AUTONOMOUS PROMPT
     # =========================================================================
-    AUTONOMOUS_PROMPT = """
-    You are Alex, an experienced technical interviewer at Heizen, conducting a Round 1 screening voice interview for the SDE Intern position.
-    ## About Heizen & The Role
-    Heizen is an AI-powered software services startup founded by elite alumni. We combine top engineering talent with proprietary AI agents to build enterprise-grade products. You are interviewing candidates for the SDE Intern role.
-
-    ## TIME MANAGEMENT & TOOL USAGE (CRITICAL)
-    Total Interview Duration: 8 to 10 minutes. You are strictly responsible for managing the pace.
-    You have access to three tools: `check_time_remaining`, `get_interview_question`, and `end_interview`.
-
-    *   **Phase 1: Intro & Background (Mins 0-3)**
-        *   Goal: Understand their background and their best work. 
-        *   Action: Ask about a specific project. Dig deeply into their role, the challenges they faced, and the tech stack. For example, if they mention building a review aggregation platform, ask how they integrated various third-party APIs or managed data consistency in MySQL.
-        *   *Tool Check:* Call `check_time_remaining` to ensure you transition around the 3-minute mark.
-    *   **Phase 2: Technical Questions (Mins 3-8)**
-        *   Goal: Assess technical knowledge based strictly on their background. 
-        *   Action: Call the `get_interview_question` tool using a category the candidate explicitly mentioned (e.g., Java, React, Database Optimization).
-        *   *Tool Check:* Call `check_time_remaining` periodically. Around the 8-minute mark, transition to Phase 3.
-    *   **Phase 3: Wrap-up (Mins 8-10)**
-        *   Goal: Conclude the interview professionally.
-        *   Action: Ask if they have any questions about Heizen. Thank them for their time and explain that the team will reach out in a few days. 
-        *   *Tool Check:* After saying your final goodbye, you MUST call the `end_interview` tool to disconnect the call.
-
-    ## CORE CONDUCT RULES FOR VOICE INTERVIEWS
-    1.  **ONE QUESTION AT A TIME (NON-NEGOTIABLE):** Never stack multiple questions in a single breath. Ask ONE short, focused question and STOP talking. Wait for their answer.
-        *   *Bad:* "Can you explain how indexing works? Also, what are the drawbacks?"
-        *   *Good:* "Can you explain how indexing works in a database?" [Wait for answer].
-    2.  **CONVERSATIONAL & CONCISE:** Keep all responses to 2-3 sentences maximum. Sound like a friendly human colleague, not a robot reading a rubric. Do not read code out loud.
-    3.  **COMPLETE THE THOUGHT:** Do not move to the next question until the candidate has given a satisfactory answer or admitted they don't know. If their answer is vague, probe for depth. If they mention optimizing a function, ask about their approach to time complexity.
-    4.  **CONTEXT-AWARE ONLY:** Never ask about technologies they haven't mentioned. If they only know Python, do not ask about JavaScript.
-    5.  **SMOOTH TRANSITIONS:** Acknowledge their previous answer briefly before pivoting. ("That makes sense. Moving on to another area you mentioned...")
-    6.  **EARLY TERMINATION:** If the candidate explicitly asks to stop, end, pause, or abort the interview at ANY time, respect their request immediately. Say a polite, brief goodbye (e.g., "Understood, we'll stop here. Have a great day!"), and immediately call the end_interview tool. Do NOT attempt to complete the remaining phases or ask wrap-up questions.
-    Match the candidate's energy, be encouraging if they are nervous, and focus on understanding their problem-solving mindset.
-    """
+    prompt_path = os.path.join(os.path.dirname(__file__), "prompt.txt")
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        AUTONOMOUS_PROMPT = f.read()
 
     model = openai.realtime.RealtimeModel.with_azure(
         azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
@@ -85,17 +58,124 @@ async def entrypoint(ctx: JobContext):
 
     interviewer_agent = Agent(
         instructions=AUTONOMOUS_PROMPT,
-        tools=[get_interview_question, check_time_remaining, end_interview] 
+        tools=[get_interview_question, check_time_remaining, end_interview]
     )
-    
-    session = AgentSession(llm=model)
-    await session.start(agent=interviewer_agent, room=ctx.room)
+
+    # ---------------------------------------------------------
+    # FIXED: Wrapped strictly in TurnHandlingOptions
+    # ---------------------------------------------------------
+    session = AgentSession(
+        llm=model,
+        turn_handling=TurnHandlingOptions(
+            min_interruption_duration=2.5,
+            false_interruption_timeout=2.0,
+            resume_false_interruption=True, 
+        )
+    )
 
     # =========================================================================
-    # 3. KICK OFF
+    # 3. SILENCE WATCHER (UPDATED)
     # =========================================================================
+    def cancel_silence_watcher():
+        nonlocal silence_task
+        if silence_task and not silence_task.done():
+            silence_task.cancel()
+        silence_task = None
+
+    def reset_silence_watcher(reset_stage=True):
+        nonlocal silence_task, silence_stage
+        
+        if reset_stage:
+            silence_stage = 0
+            
+        cancel_silence_watcher()
+        silence_task = asyncio.create_task(_silence_watcher())
+
+    async def _silence_watcher():
+        nonlocal silence_stage, is_nudging
+        try:
+            if silence_stage == 0:
+                await asyncio.sleep(8)
+                silence_stage = 1
+                is_nudging = True
+                print("🎙️ [SILENCE] Stage 0 -> 1 (Nudge 1)")
+                await session.generate_reply(
+                    instructions=(
+                        "The candidate has been silent for a while. "
+                        "Say something warm and brief like: 'Take your time, there's no rush.' "
+                        "Just one short sentence. Then stop and wait."
+                    )
+                )
+
+            elif silence_stage == 1:
+                await asyncio.sleep(8)
+                silence_stage = 2
+                is_nudging = True
+                print("🎙️ [SILENCE] Stage 1 -> 2 (Nudge 2)")
+                await session.generate_reply(
+                    instructions=(
+                        "The candidate is still silent. "
+                        "Say: 'Are you still there? I can repeat the question if that helps.' "
+                        "One sentence only. Then stop and wait."
+                    )
+                )
+
+            elif silence_stage == 2:
+                await asyncio.sleep(10)
+                silence_stage = 3 # Prevent further triggers
+                is_nudging = True
+                print("🎙️ [SILENCE] Stage 2 -> 3 (End)")
+                await session.generate_reply(
+                    instructions=(
+                        "The candidate has not responded for a long time. "
+                        "End the session gracefully. Say exactly: "
+                        "'It seems like we may have lost you — no worries at all. "
+                        "Our team will reach out to reschedule. Thanks for your time, goodbye!' "
+                        "Then immediately call the end_interview tool."
+                    )
+                )
+
+        except asyncio.CancelledError:
+            pass
+
+    # =========================================================================
+    # 4. SESSION EVENTS (FIXED FOR LIVEKIT 1.5)
+    # =========================================================================
+    
+    @session.on("user_state_changed")
+    def on_user_state_changed(ev):
+        """Fires when VAD detects user state changes: speaking, listening, or away."""
+        state_str = str(ev.new_state).lower()
+        if "speaking" in state_str:
+            print("🎙️ [EVENT] User started speaking! Cancelling timer.")
+            cancel_silence_watcher()
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev):
+        """Fires when agent transitions between initializing, thinking, speaking, and listening."""
+        state_str = str(ev.new_state).lower()
+        old_state_str = str(ev.old_state).lower()
+        print(f"🤖 [EVENT] Agent state: {old_state_str} -> {state_str}")
+        
+        # We ONLY run the silence timer when the agent is sitting idly "listening" for you.
+        if "listening" in state_str:
+            nonlocal is_nudging
+            if is_nudging:
+                is_nudging = False
+                reset_silence_watcher(reset_stage=False)
+            else:
+                reset_silence_watcher(reset_stage=True)
+        else:
+            # If the agent is thinking or actively speaking, kill the timer.
+            cancel_silence_watcher()
+
+    # =========================================================================
+    # 5. KICK OFF
+    # =========================================================================
+    await session.start(agent=interviewer_agent, room=ctx.room)
+
     await session.generate_reply(
-        instructions="""Kick off the interview warmly. Say exactly: 'Hi there, I'm Alex from Heizen. It's great to meet you! To get us started, could you give me a brief introduction.'"""
+        instructions="Kick off the interview warmly. Say exactly: 'Hi there, I'm Alex from Heizen. It's great to meet you! To get us started, could you give me a brief introduction.'"
     )
 
 if __name__ == "__main__":
