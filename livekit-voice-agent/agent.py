@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from livekit.agents import Agent, AgentSession, JobContext, RunContext, cli, function_tool
 from livekit.plugins import openai
 from livekit.agents import WorkerOptions, TurnHandlingOptions
+from openai.types.beta.realtime.session import TurnDetection
 from questions import generate_interview_question
 
 load_dotenv()
@@ -53,7 +54,15 @@ async def entrypoint(ctx: JobContext):
         azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("OPENAI_API_VERSION")
+        api_version=os.getenv("OPENAI_API_VERSION"),
+        speed=0.9,  # 0.25 (slowest) to 1.5 (fastest), default is 1.0
+        turn_detection=TurnDetection(
+            type="server_vad",
+            threshold=0.8,              # default 0.5 — higher = less sensitive to noise
+            prefix_padding_ms=400,      # default 300 — captures more lead-in audio
+            silence_duration_ms=500,    # default 200 — wait longer before ending a turn
+            create_response=True,
+        ),
     )
 
     interviewer_agent = Agent(
@@ -182,6 +191,6 @@ if __name__ == "__main__":
     cli.run_app(
         WorkerOptions(
             entrypoint_fnc=entrypoint,
-            agent_name="inbound-agent"
+            # agent_name="inbound-agent"
         )
     )
