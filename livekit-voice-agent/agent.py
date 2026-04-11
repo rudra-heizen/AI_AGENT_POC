@@ -1,42 +1,58 @@
 import asyncio
+import json
 import os
 import time
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentSession, JobContext, RunContext, cli, function_tool
-from livekit.plugins import openai
-from livekit.agents import WorkerOptions, TurnHandlingOptions
-from openai.types.beta.realtime.session import TurnDetection
-from questions import generate_interview_question
+
+from livekit.agents import (
+    Agent, 
+    AgentSession, 
+    JobContext, 
+    cli, 
+    function_tool, 
+    JobProcess, 
+    WorkerOptions,
+    room_io
+)
+from livekit.plugins import openai, silero
+from livekit.plugins import ai_coustics
+
 
 load_dotenv()
 
+
+def prewarm(proc: JobProcess):
+    proc.userdata["vad"] = silero.VAD.load()
+
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
+    participant = await ctx.wait_for_participant()
+    config = json.loads(participant.metadata)
+    
+    system_prompt = config["systemPrompt"]
+    first_message = config["firstMessage"]
+    print(system_prompt)
+    print(first_message)
 
     interview_start_time = time.time()
-    
     # State tracking for the silence watcher
     silence_task: asyncio.Task | None = None
     silence_stage = 0
     is_nudging = False
 
     # =========================================================================
-    # 1. DEFINE TOOLS
+    # TOOLS
     # =========================================================================
-    @function_tool
-    async def get_interview_question(context: RunContext, category: str, difficulty: str, question_type: str = "general") -> str:
-        """Fetch an interview question guidance. question_type must be either 'general' or 'case_study'."""
-        return await generate_interview_question(category, difficulty, question_type)
 
     @function_tool
-    async def check_time_remaining(context: RunContext) -> str:
-        """Call this to check elapsed time. The target interview length is 8 minutes."""
+    async def check_time_remaining() -> str:
+        """Call this to check elapsed time. The target interview length is 10 minutes."""
         elapsed_seconds = time.time() - interview_start_time
         mins, secs = int(elapsed_seconds // 60), int(elapsed_seconds % 60)
         return f"{mins}m {secs}s elapsed."
 
     @function_tool
-    async def end_interview(context: RunContext) -> str:
+    async def end_interview() -> str:
         """Call this function to end the interview. Use ONLY after you have said your final goodbye."""
         cancel_silence_watcher()
         await asyncio.sleep(2)
@@ -44,47 +60,29 @@ async def entrypoint(ctx: JobContext):
         return "Disconnected"
 
     # =========================================================================
-    # 2. THE AUTONOMOUS PROMPT
+    # MODEL & AGENT SETUP
     # =========================================================================
-    prompt_path = os.path.join(os.path.dirname(__file__), "prompt.txt")
-    with open(prompt_path, "r", encoding="utf-8") as f:
-        AUTONOMOUS_PROMPT = f.read()
-
     model = openai.realtime.RealtimeModel.with_azure(
-        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
+        azure_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"), # type: ignore
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         api_version=os.getenv("OPENAI_API_VERSION"),
-        speed=0.9,  # 0.25 (slowest) to 1.5 (fastest), default is 1.0
-        turn_detection=TurnDetection(
-            type="server_vad",
-            threshold=0.8,              # default 0.5 — higher = less sensitive to noise
-            prefix_padding_ms=400,      # default 300 — captures more lead-in audio
-            silence_duration_ms=500,    # default 200 — wait longer before ending a turn
-            create_response=True,
-        ),
     )
 
     interviewer_agent = Agent(
-        instructions=AUTONOMOUS_PROMPT,
-        tools=[get_interview_question, check_time_remaining, end_interview]
+        instructions=system_prompt,
+        tools=[check_time_remaining, end_interview],
     )
 
-    # ---------------------------------------------------------
-    # FIXED: Wrapped strictly in TurnHandlingOptions
-    # ---------------------------------------------------------
     session = AgentSession(
         llm=model,
-        turn_handling=TurnHandlingOptions(
-            min_interruption_duration=2.5,
-            false_interruption_timeout=2.0,
-            resume_false_interruption=True, 
-        )
+        vad=silero.VAD.load(),
     )
 
-    # =========================================================================
-    # 3. SILENCE WATCHER (UPDATED)
-    # =========================================================================
+    silence_task: asyncio.Task | None = None
+    silence_stage = 0
+    is_nudging = False
+
     def cancel_silence_watcher():
         nonlocal silence_task
         if silence_task and not silence_task.done():
@@ -93,10 +91,8 @@ async def entrypoint(ctx: JobContext):
 
     def reset_silence_watcher(reset_stage=True):
         nonlocal silence_task, silence_stage
-        
         if reset_stage:
             silence_stage = 0
-            
         cancel_silence_watcher()
         silence_task = asyncio.create_task(_silence_watcher())
 
@@ -108,52 +104,25 @@ async def entrypoint(ctx: JobContext):
                 silence_stage = 1
                 is_nudging = True
                 print("🎙️ [SILENCE] Stage 0 -> 1 (Nudge 1)")
-                await session.generate_reply(
-                    instructions=(
-                        "The candidate has been silent for a while. "
-                        "Say something warm and brief like: 'Take your time, there's no rush.' "
-                        "Just one short sentence. Then stop and wait."
-                    )
-                )
-
+                await session.generate_reply(instructions="The candidate has been silent for a while. Say something warm and brief like: 'Take your time, there's no rush.' Just one short sentence.")
             elif silence_stage == 1:
                 await asyncio.sleep(8)
                 silence_stage = 2
                 is_nudging = True
                 print("🎙️ [SILENCE] Stage 1 -> 2 (Nudge 2)")
-                await session.generate_reply(
-                    instructions=(
-                        "The candidate is still silent. "
-                        "Say: 'Are you still there? I can repeat the question if that helps.' "
-                        "One sentence only. Then stop and wait."
-                    )
-                )
-
+                await session.generate_reply(instructions="The candidate is still silent. Say: 'Are you still there? I can repeat the question if that helps.' One sentence only.")
             elif silence_stage == 2:
                 await asyncio.sleep(10)
-                silence_stage = 3 # Prevent further triggers
+                silence_stage = 3
                 is_nudging = True
                 print("🎙️ [SILENCE] Stage 2 -> 3 (End)")
-                await session.generate_reply(
-                    instructions=(
-                        "The candidate has not responded for a long time. "
-                        "End the session gracefully. Say exactly: "
-                        "'It seems like we may have lost you — no worries at all. "
-                        "Our team will reach out to reschedule. Thanks for your time, goodbye!' "
-                        "Then immediately call the end_interview tool."
-                    )
-                )
-
+                await session.generate_reply(instructions="The candidate has not responded for a long time. End the session gracefully. Say exactly: 'It seems like we may have lost you — no worries at all. Our team will reach out to reschedule. Thanks for your time, goodbye!' Then immediately call the end_interview tool.")
         except asyncio.CancelledError:
             pass
 
-    # =========================================================================
-    # 4. SESSION EVENTS (FIXED FOR LIVEKIT 1.5)
-    # =========================================================================
-    
+    # --- Event Listeners ---
     @session.on("user_state_changed")
     def on_user_state_changed(ev):
-        """Fires when VAD detects user state changes: speaking, listening, or away."""
         state_str = str(ev.new_state).lower()
         if "speaking" in state_str:
             print("🎙️ [EVENT] User started speaking! Cancelling timer.")
@@ -161,12 +130,9 @@ async def entrypoint(ctx: JobContext):
 
     @session.on("agent_state_changed")
     def on_agent_state_changed(ev):
-        """Fires when agent transitions between initializing, thinking, speaking, and listening."""
         state_str = str(ev.new_state).lower()
         old_state_str = str(ev.old_state).lower()
         print(f"🤖 [EVENT] Agent state: {old_state_str} -> {state_str}")
-        
-        # We ONLY run the silence timer when the agent is sitting idly "listening" for you.
         if "listening" in state_str:
             nonlocal is_nudging
             if is_nudging:
@@ -175,22 +141,27 @@ async def entrypoint(ctx: JobContext):
             else:
                 reset_silence_watcher(reset_stage=True)
         else:
-            # If the agent is thinking or actively speaking, kill the timer.
             cancel_silence_watcher()
-
+    
     # =========================================================================
-    # 5. KICK OFF
+    # START SESSION
     # =========================================================================
-    await session.start(agent=interviewer_agent, room=ctx.room)
+    await session.start(
+        agent=interviewer_agent, 
+        room=ctx.room,
+        room_options=room_io.RoomOptions(
+            audio_input=room_io.AudioInputOptions(
+                noise_cancellation=ai_coustics.audio_enhancement(model=ai_coustics.EnhancerModel.QUAIL_L),
+            ),
+        ),
+    )
 
     await session.generate_reply(
-        instructions="Kick off the interview warmly. Say exactly: 'Hi there, I'm Alex from Heizen. It's great to meet you! To get us started, could you give me a brief introduction.'"
+        instructions = f"Begin the interview now. Your opening line is: {first_message}"
     )
 
 if __name__ == "__main__":
-    cli.run_app(
-        WorkerOptions(
-            entrypoint_fnc=entrypoint,
-            # agent_name="inbound-agent"
-        )
-    )
+    cli.run_app(WorkerOptions(
+        entrypoint_fnc=entrypoint,
+        prewarm_fnc=prewarm
+    ))

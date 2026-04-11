@@ -1,0 +1,15 @@
+services:
+  livekit-voice-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # container_name: livekit-voice-agent
+    env_file:
+      - .env
+    restart: unless-stopped
+    # So you can see real-time agent logs clearly
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -28,6 +28,13 @@ export default function InterviewRoom() {
   const tokenSource = useMemo(() => {
     return TokenSource.endpoint("/api/token");
   }, []);
+  const connectOptions = {
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    }
+  };
 
   const session = useSession(tokenSource, {
     roomName: `interview-room-${Math.floor(Math.random() * 10000)}`,
