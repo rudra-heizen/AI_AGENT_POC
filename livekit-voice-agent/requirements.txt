@@ -3,3 +3,4 @@ livekit-plugins-openai>=0.10.17
 livekit-plugins-deepgram>=0.7.0
 livekit-plugins-ai-coustics>=0.2.7
 python-dotenv>=1.0.1
+livekit-plugins-silero
