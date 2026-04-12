@@ -13,7 +13,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Pre-download Silero VAD model so prewarm() is instant at runtime
-RUN python agent.py download-files
-
 CMD ["python", "agent.py", "start"]
